@@ -1,7 +1,7 @@
 -- Dependencies
 local love = require "love"
 local Gamestate = require "libs.gamestate"
-local anim8 = require "libs.anim8"
+local anim8 = require "libs.anim8" -- in case I change my mind and use sprites? I HAVE TO DRAW THEM FIRST
 
 -- Some global variables
 local debug = false
@@ -9,21 +9,27 @@ local window = {
     width = love.graphics.getWidth(),
     height = love.graphics.getHeight()
 }
-love.graphics.setDefaultFilter("nearest", "nearest")
+love.graphics.setDefaultFilter("nearest", "nearest") -- haha pixels
 local interval
+local highscore
+-- Data file? (contains options and config (hopefully) and the highscore data)
+local data_file
 
 -- Gamestates (using gamestate, but could be implemented with simple strings)
 local menu = {}
 local menu_selected_item
 local menu_items = {"New Game", "Options", "Leaderboard", "Quit", ""} -- made an empty item to fix something, idk lol
+local instruction_items = {"Dismiss", "Don't show this again", ""}
 local game = {}
 local pause = {}
 local gameover = {}
 local leaderboard = {}
 local options = {}
+local instructions = {} -- this screen will show only once I hope.
 
 -- Loading several assets
 local pixelFont = love.graphics.newFont("src/font/press-start/PressStart2P-vaV7.ttf", 32)
+local smolPixelFont = love.graphics.newFont("src/font/press-start/PressStart2P-vaV7.ttf", 24)
 local sprite_path = "src/sprites/snek.png"
 
 -- Defining the player object (Snake)
@@ -49,12 +55,32 @@ local apple = {}
 local size = 32
 local createApple = function ()
     math.randomseed(os.time())
-    apple.x = math.random(19)
-    apple.y = math.random(10) + 2
+    apple.x = math.random(math.floor(window.width / size) - 1)
+    apple.y = math.random(math.floor(window.height / size) - 5) + 2 -- offset from the score bit at the top
 end
 local drawApple = function ()
     love.graphics.setColor(0.23, 0.9, 0.12)
     love.graphics.rectangle("fill", apple.x * size, apple.y * size, size, size, 16, 16)
+end
+-- iterate through the score file and find a matching pattern with a number on the right hand side of the :: operand? (C++ throwbacks oof)
+local getHighScore = function ()
+	data_file = io.open("save.txt", "r")
+	local scores = {}
+	if data_file then
+		for line in data_file:lines() do
+			local k, v = line:match("^(%S*::)(.*)")
+			table.insert(scores, #scores, tonumber(v))
+		end
+		data_file:close()
+	end
+
+	local max = 0
+	for i = 1, #scores, 1 do
+		if scores[i] ~= nil then
+			if scores[i] > max then max = scores[i] end
+		end
+	end
+	return max
 end
 
 -- Global LOAD function, only called once when the game loads
@@ -76,6 +102,7 @@ end
 -- Defining menu gamestate entry
 function menu:enter(from)
     self.from = from
+	highscore = getHighScore()
 
     love.graphics.setBackgroundColor(0.2, 0.2, 0.24)
     love.keyboard.setTextInput(false)
@@ -115,7 +142,7 @@ function menu:draw()
 end
 
 function menu:update(dt)
-    -- Nothing here I guess?
+    -- Nothing here I guess? XD
 end
 
 function menu:keypressed(key, isrepeat)
@@ -138,7 +165,7 @@ function menu:keypressed(key, isrepeat)
     elseif key == 'return' or key == 'kpenter' then
         -- do according to the selected menu item
         if menu_items[menu_selected_item] == "New Game" then
-            Gamestate.switch(game)
+            Gamestate.switch(instructions)
         end
         if menu_items[menu_selected_item] == "Quit" then
             love.event.quit()
@@ -149,10 +176,20 @@ end
 function game:enter(from)
     self.from = from
 
+	if from ~= pause then
+		Snek.x = 10
+		Snek.y = 10
+		score = 0
+		Snek.length = 0
+		Snek.tail = {}
+		Snek.dir = 0
+	end
+
     -- grid lock the snake
     interval = 20
     -- this will call drawApple() the first time it loads
     createApple()
+	-- get highest score stored in data_file (start from the 2nd line)
 end
 
 function game:draw()
@@ -166,10 +203,14 @@ function game:draw()
     end
 
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("Score: "..score, 16, 16)
+	love.graphics.setFont(smolPixelFont)
+    love.graphics.print("Score: "..score, 20, 20)
+	local textWidth = smolPixelFont:getWidth("High: xxxx")
+	love.graphics.print("High: "..highscore, window.width - textWidth - 20, 20)
     love.graphics.setColor(0.3, 0.3, 0.36)
     love.graphics.line(16, 64, window.width - 16, 64)
 
+	love.graphics.setFont(pixelFont)
     drawApple()
 end
 
@@ -255,7 +296,7 @@ function Snek:update(dt)
         table.insert(Snek.tail, {0, 0})
     end
 
-	-- also collision detection?
+	-- if the snek collides with any of its tails, it's ded
 	for i = 1, #Snek.tail, 1 do
 		if Snek.x == Snek.tail[i][1] and Snek.y == Snek.tail[i][2] then
 			love.timer.sleep(1)
@@ -281,6 +322,7 @@ end
 -- Gameover State
 function gameover:enter(from)
     self.from = from
+	-- recorded the previous state but I did nothing here
 end
 
 function gameover:draw()
@@ -298,5 +340,95 @@ function gameover:draw()
         score_from_zero = score_from_zero + 1
     end
 
-    -- TODO: a way to set a 3 letter name for the leaderboard?
+
+    -- TODO: set a 3 letter name for the leaderboard and get back to main menu?
+	-- Also new highscore message if score > highscore?
+end
+
+function gameover:keypressed(key, isrepeat)
+	if key == 'return' or key == 'kpenter' then
+		Gamestate.switch(menu)
+	end
+end
+
+-- Instructions screen?
+function instructions:enter(from)
+	self.from = from
+	-- we'll always land here lol so we gotta check a file whether or not this has been set to be never shown again?
+	-- the data_file descriptor will open a physical save.txt file (read mode)
+	data_file = io.open("save.txt", "r")
+	if data_file then
+		local inst_line = data_file:read("*l")
+		local ins, var = inst_line:match("^(%S*=)(.*)")
+		if var == "false" then
+			Gamestate.switch(game)
+		end
+		-- WAIT IT'S DEEMED TRUE OTHERWISE? Always has been :)
+	end
+end
+
+function instructions:draw()
+	love.graphics.setColor(0.93, 0.12, 0.31, 1)
+    local textWidth = pixelFont:getWidth("Instructions")
+    local textHeight = pixelFont:getHeight()
+    love.graphics.print("Instructions", window.width / 2, 50, 0, 1, 1, textWidth / 2, textHeight / 2)
+    love.graphics.setColor(1, 1, 1)
+	love.graphics.setFont(smolPixelFont)
+    love.graphics.printf("Use the arrow keys or WASD to move Snek around.\nMake sure not to hit the walls!\nThe more fruits you eat, the faster the game will go.", 0, window.height / 2 - 100, window.width, "center")
+	
+	for i = 1, #instruction_items do
+		textWidth = smolPixelFont:getWidth(instruction_items[i])
+        textHeight = smolPixelFont:getHeight()
+		
+        if i == menu_selected_item then
+            love.graphics.setColor(0.93, 0.12, 0.31, 1)
+        else
+            love.graphics.setColor(1, 1, 1, 1)
+        end
+		
+        love.graphics.print(instruction_items[i], window.width / 2, window.height / 2 + 120 + (i - 1) *32, 0, 1, 1, textWidth / 2, textHeight / 2)
+    end
+	-- Set default font again :)
+	love.graphics.setFont(pixelFont)
+end
+
+function instructions:keypressed(key, isrepeat)
+	if key == 'w' or key == 'up' then
+        menu_selected_item = menu_selected_item - 1
+        
+    	-- wrap to bottom
+        if menu_selected_item < 1 then
+            menu_selected_item = #instruction_items - 1
+        end
+    elseif key == 's' or key == 'down' then
+        menu_selected_item = menu_selected_item + 1
+
+        -- wrap to top
+        if menu_selected_item > #instruction_items - 1 then
+            menu_selected_item = 1
+        end
+    elseif key == 'return' or key == 'kpenter' then
+        -- do according to the selected menu item (in instruction_items)
+        if instruction_items[menu_selected_item] == "Don't show this again" then
+			-- get entire data from file
+			local lines = {}
+            data_file = io.open("save.txt", "r")
+			for line in data_file:lines("L") do
+				-- TODO: a line gets dismissed here?
+				table.insert(lines, #lines, line)
+			end
+			data_file:close()
+			-- create a new file with the modified line
+			data_file = io.open("save.txt", "w+")
+			if data_file then
+				data_file:write("show_instructions=false\n")
+				-- put the data back in the file (we already wrote the first line so we'll iterate starting from index 2)
+				for i = 1, #lines - 1, 1 do
+					data_file:write(lines[i])
+				end
+				data_file:close()
+			end
+        end
+		Gamestate.switch(game)
+    end
 end
