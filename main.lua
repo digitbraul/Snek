@@ -12,6 +12,8 @@ local window = {
 love.graphics.setDefaultFilter("nearest", "nearest") -- haha pixels
 local interval
 local highscore
+local continue = false -- save snek data to file if set to continue?
+local nameLetters = {'A', 'A', 'A'}
 -- Data file? (contains options and config (hopefully) and the highscore data)
 local data_file
 
@@ -26,6 +28,7 @@ local gameover = {}
 local leaderboard = {}
 local options = {}
 local instructions = {} -- this screen will show only once I hope.
+local registerHighScore = {}
 
 -- Loading several assets
 local pixelFont = love.graphics.newFont("src/font/press-start/PressStart2P-vaV7.ttf", 32)
@@ -63,22 +66,51 @@ local drawApple = function ()
     love.graphics.rectangle("fill", apple.x * size, apple.y * size, size, size, 16, 16)
 end
 -- iterate through the score file and find a matching pattern with a number on the right hand side of the :: operand? (C++ throwbacks oof)
-local getHighScore = function ()
+local getScoreTable = function ()
 	data_file = io.open("save.txt", "r")
 	local scores = {}
 	if data_file then
 		for line in data_file:lines() do
 			local k, v = line:match("^(%S*::)(.*)")
-			table.insert(scores, #scores, tonumber(v))
+			if(tonumber(v) ~= nil) then
+				table.insert(scores, #scores + 1, tonumber(v))
+			end
 		end
 		data_file:close()
 	end
 
+	return scores
+end
+-- duplicate function (TODO: remove? it may need a lot of tweaks)
+local getKeyValueScoreTable = function ()
+	data_file = io.open("save.txt", "r")
+	local scores = {}
+	if data_file then
+		for line in data_file:lines() do
+			local k, v = line:match("^(%S*::)(.*)")
+			if k ~= nil then
+				k = string.sub(k, 1, #nameLetters)
+				if(tonumber(v) ~= nil) then
+					if scores[k] == nil then
+						scores[k] = v
+					else
+						-- key already exists
+						if scores[k] > v then scores[k] = v end
+					end
+				end
+			end
+		end
+		data_file:close()
+	end
+
+	return scores
+end
+local getHighScore = function ()
+	local scores = getScoreTable()
+
 	local max = 0
 	for i = 1, #scores, 1 do
-		if scores[i] ~= nil then
-			if scores[i] > max then max = scores[i] end
-		end
+		if scores[i] > max then max = scores[i] end
 	end
 	return max
 end
@@ -170,6 +202,9 @@ function menu:keypressed(key, isrepeat)
         if menu_items[menu_selected_item] == "Quit" then
             love.event.quit()
         end
+		if menu_items[menu_selected_item] == "Leaderboard" then
+			Gamestate.switch(leaderboard)
+		end
     end
 end
 
@@ -183,13 +218,15 @@ function game:enter(from)
 		Snek.length = 0
 		Snek.tail = {}
 		Snek.dir = 0
+	else
+		love.timer.sleep(1)
 	end
 
     -- grid lock the snake
     interval = 20
     -- this will call drawApple() the first time it loads
     createApple()
-	-- get highest score stored in data_file (start from the 2nd line)
+	-- get highest score stored in data_file
 end
 
 function game:draw()
@@ -205,7 +242,7 @@ function game:draw()
     love.graphics.setColor(1, 1, 1, 1)
 	love.graphics.setFont(smolPixelFont)
     love.graphics.print("Score: "..score, 20, 20)
-	local textWidth = smolPixelFont:getWidth("High: xxxx")
+	local textWidth = smolPixelFont:getWidth("High: xxx")
 	love.graphics.print("High: "..highscore, window.width - textWidth - 20, 20)
     love.graphics.setColor(0.3, 0.3, 0.36)
     love.graphics.line(16, 64, window.width - 16, 64)
@@ -304,8 +341,7 @@ function Snek:update(dt)
 		end
 	end
 
-    -- idk what 19 or 14 are but make sure not to change the screen resolution :))))
-    if Snek.x < 0 or Snek.x > 19 or Snek.y < 2 or Snek.y > 14 then
+    if Snek.x < 0 or Snek.x > math.floor(window.width / size) - 1 or Snek.y < 2 or Snek.y > math.floor(window.height / size) - 1 then
         love.timer.sleep(1) -- for the dramatic effect (also the sound to play?)
         Gamestate.switch(gameover)
     end
@@ -322,6 +358,8 @@ end
 -- Gameover State
 function gameover:enter(from)
     self.from = from
+	continue = false -- also flush the file content (TODO a continue state?)
+	score_from_zero = 0
 	-- recorded the previous state but I did nothing here
 end
 
@@ -340,6 +378,12 @@ function gameover:draw()
         score_from_zero = score_from_zero + 1
     end
 
+	love.graphics.setColor(0.23, 0.9, 0.12)
+	if score > highscore then
+		love.graphics.setFont(smolPixelFont)
+    	love.graphics.printf("New high score!", 0, window.height / 2 + 80, window.width, "center")
+		love.graphics.setFont(pixelFont)
+	end
 
     -- TODO: set a 3 letter name for the leaderboard and get back to main menu?
 	-- Also new highscore message if score > highscore?
@@ -347,7 +391,69 @@ end
 
 function gameover:keypressed(key, isrepeat)
 	if key == 'return' or key == 'kpenter' then
+		if score > highscore then
+			Gamestate.switch(registerHighScore)
+		else
+			Gamestate.switch(menu)
+		end
+	end
+end
+
+-- Register High Score functions
+function registerHighScore:enter(from)
+	self.from = from
+	menu_selected_item = 1
+end
+
+function registerHighScore:draw()
+	love.graphics.setColor(0.3, 0.3, 0.36)
+	love.graphics.setFont(pixelFont)
+    love.graphics.rectangle("fill", 50, 100, window.width - 100, window.height - 200, 5, 5)
+    love.graphics.setColor(0.93, 0.12, 0.31, 1)
+    local textWidth = pixelFont:getWidth("NEW HIGH SCORE!")
+    local textHeight = pixelFont:getHeight()
+    love.graphics.print("NEW HIGH SCORE!", window.width / 2, window.height / 2 - 100, 0, 1, 1, textWidth / 2, textHeight / 2)
+    love.graphics.setColor(1, 1, 1)
+	love.graphics.setFont(smolPixelFont)
+    love.graphics.printf("Enter your name using the arrow keys and press Enter", 60, window.height / 2 - 50, window.width - 120, "center")
+	love.graphics.setFont(pixelFont)
+
+	textWidth = pixelFont:getWidth("A")
+	for i, letter in ipairs(nameLetters) do
+		-- these aren't centered?
+		if menu_selected_item == i then
+			love.graphics.setColor(0.93, 0.12, 0.31, 1)
+		else
+			love.graphics.setColor(1, 1, 1)
+		end
+
+		love.graphics.print(letter, window.width / 2 + (i - 1) * 50, window.height / 2 + 80, 0, 1, 1, (#nameLetters * 20), textHeight / 2)
+	end
+end
+
+function registerHighScore:keypressed(key, isrepeat)
+	
+	if key == 'return' or key == 'kpenter' then
+		data_file = io.open("save.txt", "a+")
+		if data_file then
+			-- serialize the table nameLetters
+			local str = ""
+			for i, letter in ipairs(nameLetters) do
+				str = str..letter
+			end
+			data_file:write(str.."::"..score.."\n")
+			data_file:close()
+		end
 		Gamestate.switch(menu)
+	elseif key == 'up' or key == 'w' then
+		nameLetters[menu_selected_item] = string.char(nameLetters[menu_selected_item]:byte() - 1)
+		if nameLetters[menu_selected_item]:byte() < 65 then nameLetters[menu_selected_item] = string.char(nameLetters[menu_selected_item]:byte() + 26) end
+	elseif key == 'down' or key == 's' then
+		nameLetters[menu_selected_item] = string.char(nameLetters[menu_selected_item]:byte() + 1)
+		if nameLetters[menu_selected_item]:byte() >= 91 then nameLetters[menu_selected_item] = string.char(nameLetters[menu_selected_item]:byte() - 26) end
+	elseif key == 'right' or key == 'd' then
+		if menu_selected_item >= #nameLetters then menu_selected_item = 0 end
+		menu_selected_item = menu_selected_item + 1
 	end
 end
 
@@ -363,7 +469,7 @@ function instructions:enter(from)
 		if var == "false" then
 			Gamestate.switch(game)
 		end
-		-- WAIT IT'S DEEMED TRUE OTHERWISE? Always has been :)
+		-- WAIT IT'S TRUE OTHERWISE? Always has been :)
 	end
 end
 
@@ -413,22 +519,75 @@ function instructions:keypressed(key, isrepeat)
 			-- get entire data from file
 			local lines = {}
             data_file = io.open("save.txt", "r")
-			for line in data_file:lines("L") do
-				-- TODO: a line gets dismissed here?
-				table.insert(lines, #lines, line)
+			if data_file then
+				for line in data_file:lines("*l") do
+					table.insert(lines, #lines + 1, line)
+				end
+				data_file:close()
 			end
-			data_file:close()
+
 			-- create a new file with the modified line
 			data_file = io.open("save.txt", "w+")
 			if data_file then
 				data_file:write("show_instructions=false\n")
-				-- put the data back in the file (we already wrote the first line so we'll iterate starting from index 2)
-				for i = 1, #lines - 1, 1 do
-					data_file:write(lines[i])
+				-- put the data back in the file
+				for i = 2, #lines, 1 do
+					data_file:write(lines[i]..'\n')
 				end
 				data_file:close()
 			end
         end
 		Gamestate.switch(game)
     end
+end
+
+-- Leaderboard?
+
+function leaderboard:enter(from)
+	self.from = from
+end
+
+function leaderboard:draw()
+	-- fix leaderboard duplicate values getting the same key? wish this was Python :(
+	local scores = getKeyValueScoreTable()
+	local values = {}
+	for k, v in pairs(scores) do table.insert(values, v) end
+	table.sort(values)
+
+	love.graphics.setFont(pixelFont)
+	love.graphics.setColor(0.93, 0.12, 0.31, 1)
+    local textWidth = pixelFont:getWidth("Leaderboard")
+    local textHeight = pixelFont:getHeight()
+    love.graphics.print("Leaderboard", window.width / 2, 50, 0, 1, 1, textWidth / 2, textHeight / 2)
+    love.graphics.setColor(1, 1, 1)
+
+	local iterations = 8
+	if #values < 8 then
+		iterations = #values
+	end
+
+	for i = 1, iterations, 1 do
+		-- find the key for the corresponding value and print it
+		local c_key = ""
+		for key, value in pairs(scores) do
+			if values[i] == value then
+				c_key = key
+			end
+		end
+
+		local string_value = tostring(values[i])
+		while #string_value < 4 do
+			string_value = "0"..string_value
+		end
+		textWidth = pixelFont:getWidth(c_key.."\t"..string_value)
+		textHeight = pixelFont:getHeight()
+		
+		love.graphics.print(c_key.."\t"..string_value, window.width / 2, window.height / 2 - 100 + (#values - i) * 40, 0, 1, 1, textWidth / 2, textHeight / 2)
+	end
+end
+
+function leaderboard:keypressed(key, isrepeat)
+	if key == 'escape' then
+		Gamestate.switch(menu)
+	end
 end
