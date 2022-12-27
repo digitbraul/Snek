@@ -119,14 +119,14 @@ function menu:update(dt)
 end
 
 function menu:keypressed(key, isrepeat)
-    if key == 'w' then
+    if key == 'w' or key == 'up' then
         menu_selected_item = menu_selected_item - 1
         
         -- wrap to bottom
         if menu_selected_item < 1 then
             menu_selected_item = #menu_items - 1
         end
-    elseif key == 's' then
+    elseif key == 's' or key == 'down' then
         menu_selected_item = menu_selected_item + 1
 
         -- wrap to top
@@ -197,13 +197,14 @@ function game:update(dt)
 end
 
 function game:keypressed(key, isrepeat)
-    if key == 'w' then
+	-- the snek shouldn't go directly opposite to the direction it's going
+    if (key == 'w' or key == 'up') and Snek.dir ~= 1 then
         Snek.dir = 0
-    elseif key == 's' then
+    elseif (key == 's' or key == 'down') and Snek.dir ~= 0 then
         Snek.dir = 1
-    elseif key == 'd' then
+    elseif (key == 'd' or key == 'right') and Snek.dir ~= 3 then
         Snek.dir = 2
-    elseif key == 'a' then
+    elseif (key == 'a' or key == 'left') and Snek.dir ~= 2 then
         Snek.dir = 3
     end
 end
@@ -253,6 +254,14 @@ function Snek:update(dt)
         score = score + score_increment
         table.insert(Snek.tail, {0, 0})
     end
+
+	-- also collision detection?
+	for i = 1, #Snek.tail, 1 do
+		if Snek.x == Snek.tail[i][1] and Snek.y == Snek.tail[i][2] then
+			love.timer.sleep(1)
+        	Gamestate.switch(gameover)
+		end
+	end
 
     -- idk what 19 or 14 are but make sure not to change the screen resolution :))))
     if Snek.x < 0 or Snek.x > 19 or Snek.y < 2 or Snek.y > 14 then
