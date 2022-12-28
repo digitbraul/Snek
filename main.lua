@@ -82,10 +82,21 @@ local score_from_zero = 0
 -- Defining apples
 local apple = {}
 local size = 32
+local test_collision = function (a)
+	for i = 1, #Snek.tail, 1 do
+		if a.x == Snek.tail[i][1] and a.y == Snek.tail[i][2] then
+			return true
+		end
+	end
+	if a.x == Snek.x and a.y == Snek.y then return true end
+	return false
+end
 local createApple = function ()
     math.randomseed(os.time())
-    apple.x = math.random(math.floor(window.width / size) - 1)
-    apple.y = math.random(math.floor(window.height / size) - 5) + 2 -- offset from the score bit at the top
+	repeat
+    	apple.x = math.random(math.floor(window.width / size) - 1)
+    	apple.y = math.random(math.floor(window.height / size) - 5) + 2 -- offset from the score bit at the top
+	until test_collision(apple) == false
 end
 local drawApple = function ()
     love.graphics.setColor(0.23, 0.9, 0.12)
@@ -320,19 +331,22 @@ function game:update(dt)
     if interval < 0 then
         Snek:update(dt)
         if Snek.length > 10 then
-            interval = 15
+            interval = 10
             score_increment = 10
         elseif Snek.length > 20 then
-            interval = 10
+            interval = 8
             score_increment = 20
         elseif Snek.length > 30 then
-            interval = 5
+            interval = 6
             score_increment = 30
         elseif Snek.length > 40 then
-            interval = 1
+            interval = 4
             score_increment = 40
+		elseif Snek.length > 60 then
+            interval = 2
+            score_increment = 50
         else
-            interval = 20
+            interval = 12
         end
     end
 end
