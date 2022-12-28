@@ -2,6 +2,7 @@
 local love = require "love"
 local Gamestate = require "libs.gamestate"
 local anim8 = require "libs.anim8" -- in case I change my mind and use sprites? I HAVE TO DRAW THEM FIRST
+local Tserial = require('libs.TSerial')
 
 -- Some global variables
 local debug = false
@@ -12,7 +13,30 @@ local window = {
 love.graphics.setDefaultFilter("nearest", "nearest") -- haha pixels
 local interval
 local highscore
-local continue = false -- save snek data to file if set to continue?
+local continue = false -- if the user presses continue, this is set to true
+local get_continue_exists = function ()
+	local continue_data = io.open("snek_data.txt", "r")
+	if continue_data ~= nil then
+		-- this needs additional tests (it could be a fatal flaw)
+		local size = continue_data:seek("end")
+		if size < 10 then
+			return false
+		else
+			-- check whether it contains actual data? and not gibberish? (a simple test)
+			continue_data:seek("set")
+			local test_string = continue_data:read("*a")
+			if string.find(test_string, "{") ~= nil then
+				if string.find(test_string, "old_x") ~= nil then
+					if string.find(test_string, "score") ~= nil then
+						return true
+					end
+				end
+			end
+			return false
+		end
+	end
+end
+local continue_exists = false
 local nameLetters = {'A', 'A', 'A'}
 -- Data file? (contains options and config (hopefully) and the highscore data)
 local data_file
@@ -20,8 +44,9 @@ local data_file
 -- Gamestates (using gamestate, but could be implemented with simple strings)
 local menu = {}
 local menu_selected_item
-local menu_items = {"New Game", "Options", "Leaderboard", "Quit", ""} -- made an empty item to fix something, idk lol
+local menu_items = {"New Game", "Continue", "Leaderboard", "Quit", ""} -- made an empty item to fix something, idk lol
 local instruction_items = {"Dismiss", "Don't show this again", ""}
+local pause_items = {"Continue", "Save and quit", ""}
 local game = {}
 local pause = {}
 local gameover = {}
@@ -49,6 +74,7 @@ local Snek = {
     old_x = 0,
     old_y = 0
 }
+local save_table = {} -- save all data to file?
 -- Score and idk... drawing the score incrementally?
 local score = 0
 local score_increment = 5 -- initially we're incrementing by 5, then increase
@@ -143,6 +169,10 @@ function menu:enter(from)
     love.graphics.setFont(pixelFont)
     MenuCanvas = love.graphics.newCanvas()
     
+	-- Check whether we have previously saved data
+	continue_exists = get_continue_exists()
+	continue = false
+
     -- set default option to "New Game"
     menu_selected_item = 1
 end
@@ -180,14 +210,20 @@ end
 function menu:keypressed(key, isrepeat)
     if key == 'w' or key == 'up' then
         menu_selected_item = menu_selected_item - 1
-        
+        -- we're in continue and we don't have data, skip it
+		if menu_items[menu_selected_item] == "Continue" and continue_exists == false then
+			menu_selected_item = menu_selected_item - 1
+		end
         -- wrap to bottom
         if menu_selected_item < 1 then
             menu_selected_item = #menu_items - 1
         end
     elseif key == 's' or key == 'down' then
         menu_selected_item = menu_selected_item + 1
-
+		-- we're in continue and we don't have data, skip it
+		if menu_items[menu_selected_item] == "Continue" and continue_exists == false then
+			menu_selected_item = menu_selected_item + 1
+		end
         -- wrap to top
         if menu_selected_item > #menu_items - 1 then
             menu_selected_item = 1
@@ -196,8 +232,11 @@ function menu:keypressed(key, isrepeat)
         love.event.quit()
     elseif key == 'return' or key == 'kpenter' then
         -- do according to the selected menu item
-        if menu_items[menu_selected_item] == "New Game" then
-            Gamestate.switch(instructions)
+        if menu_items[menu_selected_item] == "New Game" or menu_items[menu_selected_item] == "Continue" then
+            if menu_items[menu_selected_item] == "Continue" then
+				continue = true
+			end
+			Gamestate.switch(instructions)
         end
         if menu_items[menu_selected_item] == "Quit" then
             love.event.quit()
@@ -212,20 +251,43 @@ function game:enter(from)
     self.from = from
 
 	if from ~= pause then
+		-- reinitialize Snek if we weren't in the pause screen
 		Snek.x = 10
 		Snek.y = 10
 		score = 0
 		Snek.length = 0
 		Snek.tail = {}
 		Snek.dir = 0
-	else
-		love.timer.sleep(1)
 	end
+	if continue == true then
+		-- if the user pressed continue, do this
+		local save_file = io.open("snek_data.txt", "r")
+		if save_file ~= nil then
+			save_table = TSerial.unpack(save_file:read("*a"))
+			Snek.x = save_table.x
+			Snek.y = save_table.y
+			Snek.length = save_table.length
+			Snek.tail = save_table.tail
+			Snek.dir = save_table.dir
+			Snek.old_x = save_table.old_x
+			Snek.old_y = save_table.old_y
+			apple.x = save_table.apple.x
+			apple.y = save_table.apple.y
+			score = save_table.score
+			save_file:close()
+		end
+	else
+		local save_file = io.open("snek_data.txt", "w+")
+		save_file:close()
+	end
+	love.timer.sleep(1)
 
     -- grid lock the snake
     interval = 20
     -- this will call drawApple() the first time it loads
-    createApple()
+	if continue == false then
+		createApple()
+	end
 	-- get highest score stored in data_file
 end
 
@@ -248,6 +310,7 @@ function game:draw()
     love.graphics.line(16, 64, window.width - 16, 64)
 
 	love.graphics.setFont(pixelFont)
+
     drawApple()
 end
 
@@ -290,13 +353,37 @@ end
 function love.keypressed(key, isrepeat)
     if Gamestate.current() == game and key == 'escape' then
         Gamestate.push(pause)
-    elseif Gamestate.current() == pause and (key == 'escape' or key == 'return' or key == 'kpenter') then
-        Gamestate.pop(pause)
-    end
+    elseif Gamestate.current() == pause then
+		if key == 'escape' then
+			Gamestate.pop(pause)
+		elseif key == 'return' or key == 'kpenter' then
+			if pause_items[menu_selected_item] == "Continue" then
+				Gamestate.pop(pause)
+			elseif pause_items[menu_selected_item] == "Save and quit" then
+				save_table.x = Snek.x
+				save_table.y = Snek.y
+				save_table.dir = Snek.dir
+				save_table.tail = Snek.tail
+				save_table.length = Snek.length
+				save_table.old_x = Snek.old_x
+				save_table.old_y = Snek.old_y
+				save_table.score = score
+				save_table.apple = {
+					x = apple.x,
+					y = apple.y
+				}
+				local continue_file = io.open("snek_data.txt", "w+")
+				continue_file:write(TSerial.pack(save_table))
+				continue_file:close()
+				Gamestate.switch(menu)
+			end
+    	end
+	end
 end
 
 function pause:enter(from)
     self.from = from
+	menu_selected_item = 1
 end
 
 function pause:draw()
@@ -305,8 +392,38 @@ function pause:draw()
     love.graphics.setColor(0.93, 0.12, 0.31, 1)
     local textWidth = pixelFont:getWidth("PAUSE")
     local textHeight = pixelFont:getHeight()
-    love.graphics.print("PAUSE", window.width / 2, window.height / 2, 0, 1, 1, textWidth / 2, textHeight / 2)
+    love.graphics.print("PAUSE", window.width / 2, window.height / 2 - 100, 0, 1, 1, textWidth / 2, textHeight / 2)
     love.graphics.setColor(1, 1, 1)
+
+	love.graphics.setFont(smolPixelFont)
+	for i = 1, #pause_items, 1 do
+		textWidth = smolPixelFont:getWidth(pause_items[i])
+        textHeight = smolPixelFont:getHeight()
+
+		if i == menu_selected_item then
+			love.graphics.setColor(0.93, 0.12, 0.31, 1)
+		else
+			love.graphics.setColor(1, 1, 1, 1)
+		end
+
+		love.graphics.print(pause_items[i], window.width / 2, window.height / 2 + (i - 1) * 50 - 10, 0, 1, 1, textWidth / 2, textHeight / 2)
+	end
+	-- Set default font again :)
+	love.graphics.setFont(pixelFont)
+end
+
+function pause:keypressed(key, isrepeat)
+	if key == 'up' or key == 'w' then
+		menu_selected_item = menu_selected_item - 1
+		if menu_selected_item < 1 then
+			menu_selected_item = #pause_items - 1
+		end
+	elseif key == 'down' or key == 's' then
+		menu_selected_item = menu_selected_item + 1
+		if menu_selected_item >= #pause_items then
+			menu_selected_item = 1
+		end
+	end
 end
 
 function Snek:update(dt)
@@ -358,7 +475,11 @@ end
 -- Gameover State
 function gameover:enter(from)
     self.from = from
-	continue = false -- also flush the file content (TODO a continue state?)
+	continue = false
+	-- flush continue file
+	local save_file = io.open("snek_data.txt", "w+")
+	save_file:close()
+
 	score_from_zero = 0
 	-- recorded the previous state but I did nothing here
 end
@@ -548,11 +669,10 @@ function leaderboard:enter(from)
 end
 
 function leaderboard:draw()
-	-- fix leaderboard duplicate values getting the same key? wish this was Python :(
 	local scores = getKeyValueScoreTable()
 	local values = {}
 	for k, v in pairs(scores) do table.insert(values, v) end
-	table.sort(values)
+	table.sort(values) -- TODO: Leaderboard isn't sorted?
 
 	love.graphics.setFont(pixelFont)
 	love.graphics.setColor(0.93, 0.12, 0.31, 1)
@@ -566,12 +686,23 @@ function leaderboard:draw()
 		iterations = #values
 	end
 
+	local printed_keys = {} -- to find duplicate values having the same keys
+	local not_printed = function (t, key)
+		for i = 1, #t, 1 do
+			if t[i] == key then
+				return false
+			end
+		end
+		return true
+	end
+
 	for i = 1, iterations, 1 do
 		-- find the key for the corresponding value and print it
 		local c_key = ""
 		for key, value in pairs(scores) do
-			if values[i] == value then
+			if values[i] == value and not_printed(printed_keys, key) then
 				c_key = key
+				break
 			end
 		end
 
@@ -582,7 +713,8 @@ function leaderboard:draw()
 		textWidth = pixelFont:getWidth(c_key.."\t"..string_value)
 		textHeight = pixelFont:getHeight()
 		
-		love.graphics.print(c_key.."\t"..string_value, window.width / 2, window.height / 2 - 100 + (#values - i) * 40, 0, 1, 1, textWidth / 2, textHeight / 2)
+		table.insert(printed_keys, c_key)
+		love.graphics.print(c_key.."\t"..string_value, window.width / 2, window.height / 2 - 100 + (iterations - i) * 40, 0, 1, 1, textWidth / 2, textHeight / 2)
 	end
 end
 
