@@ -2,7 +2,7 @@
 local love = require "love"
 local Gamestate = require "libs.gamestate"
 local anim8 = require "libs.anim8" -- in case I change my mind and use sprites? I HAVE TO DRAW THEM FIRST
-local Tserial = require('libs.TSerial')
+local Tserial = require "libs.TSerial"
 
 -- Some global variables
 local debug = false
@@ -34,6 +34,8 @@ local get_continue_exists = function ()
 			end
 			return false
 		end
+	else
+		return false
 	end
 end
 local continue_exists = false
