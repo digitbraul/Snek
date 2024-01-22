@@ -58,9 +58,9 @@ local instructions = {} -- this screen will show only once I hope.
 local registerHighScore = {}
 
 -- Loading several assets
-local pixelFont = love.graphics.newFont("src/font/press-start/PressStart2P-vaV7.ttf", 32)
-local smolPixelFont = love.graphics.newFont("src/font/press-start/PressStart2P-vaV7.ttf", 24)
-local sprite_path = "src/sprites/snek.png"
+local pixelFont = love.graphics.newFont("assets/font/press-start/PressStart2P-vaV7.ttf", 32)
+local smolPixelFont = love.graphics.newFont("assets/font/press-start/PressStart2P-vaV7.ttf", 24)
+local sprite_path = "assets/sprites/snek.png"
 
 -- Defining the player object (Snake)
 local Snek = {
